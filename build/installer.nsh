@@ -1,6 +1,5 @@
 ; Custom NSIS hooks for AI Meeting Assistant Copilot (Not Another AI)
-; 1. Checks for Google Chrome or Brave Browser before install (with user confirmation).
-; 2. Offers optional OpenAI Codex CLI setup during install (with user confirmation).
+; Checks for Google Chrome or Brave Browser and asks user before opening download page.
 
 !macro customInit
   StrCpy $0 ""
@@ -22,38 +21,4 @@
   ExecShell "open" "https://www.google.com/chrome/"
 
   browser_found:
-!macroend
-
-!macro customInstall
-  ; Check if Codex CLI is already installed
-  nsExec::Exec 'cmd /c where codex >nul 2>&1'
-  Pop $0
-  StrCmp $0 "0" codex_done
-
-  ; Ask user if they want to set up Codex CLI for ChatGPT plan sign-in
-  MessageBox MB_YESNO|MB_ICONQUESTION "Would you like to install OpenAI Codex CLI now so you can use your ChatGPT account (Plus/Pro recommended)?$\r$\n$\r$\nSelect No to skip this and use an OpenAI or Anthropic API key in Settings instead." IDNO codex_done
-
-  ; Check if Node.js / npm is available
-  nsExec::Exec 'cmd /c where npm >nul 2>&1'
-  Pop $1
-  StrCmp $1 "0" install_codex
-
-  ; Node.js not found -- ask before opening nodejs.org
-  MessageBox MB_YESNO|MB_ICONINFORMATION "Node.js is required to install Codex CLI, but it was not detected on this PC.$\r$\n$\r$\nWould you like to open the Node.js download page now? After installing Node.js, you can run: npm install -g @openai/codex && codex login" IDNO codex_done
-  ExecShell "open" "https://nodejs.org/"
-  Goto codex_done
-
-  install_codex:
-  DetailPrint "Installing OpenAI Codex CLI (@openai/codex)..."
-  nsExec::ExecToLog 'cmd /c npm install -g @openai/codex'
-  Pop $2
-  StrCmp $2 "0" launch_codex_login
-  MessageBox MB_OK|MB_ICONEXCLAMATION "Codex CLI installation did not complete automatically. You can install it anytime later by running: npm install -g @openai/codex"
-  Goto codex_done
-
-  launch_codex_login:
-  MessageBox MB_YESNO|MB_ICONINFORMATION "Codex CLI is installed! Would you like to sign in with your ChatGPT account now? (A browser window will open.)" IDNO codex_done
-  Exec 'cmd /k codex login'
-
-  codex_done:
 !macroend
