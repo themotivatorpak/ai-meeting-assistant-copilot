@@ -22,10 +22,11 @@
     "electron": "^34.5.8"
   },
   "license": "MIT",
-  "author": "Tanzeel (https://github.com/tanzeeldevAi)",
+  "author": "Not Another AI",
+  "homepage": "https://github.com/themotivatorpak/ai-meeting-assistant-copilot",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tanzeeldevAi/ai-meeting-assistant-copilot.git"
+    "url": "https://github.com/themotivatorpak/ai-meeting-assistant-copilot.git"
   },
   "engines": {
     "node": ">=18"
