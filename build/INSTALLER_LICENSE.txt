@@ -1,4 +1,4 @@
-AI Meeting Assistant Copilot — Windows Installer
+AI Meeting Assistant Copilot - Windows Installer
 Brought to you by Not Another AI (https://github.com/themotivatorpak/ai-meeting-assistant-copilot)
 
 This is an independent, one-click Windows distribution packaged and brought to you by Not Another AI using open-source software, built so anyone can install and run the app easily without manual developer setup.
