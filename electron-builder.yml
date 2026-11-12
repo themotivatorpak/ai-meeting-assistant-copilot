@@ -1,0 +1,44 @@
+appId: com.tanzeeldevai.aimeetingassistantcopilot
+productName: AI Meeting Assistant Copilot
+copyright: "Copyright (c) 2026 Tanzeel Ur Rehman (@tanzeeldevAi) - MIT License"
+
+directories:
+  output: dist-installer
+  buildResources: build
+
+files:
+  - "src/**/*"
+  - "package.json"
+  - "LICENSE"
+  - "THIRD_PARTY_LICENSES.md"
+  - "!audio/**"
+  - "!.venv/**"
+  - "!dist-python/**"
+  - "!dist-installer/**"
+  - "!**/*.bat"
+  - "!**/*.command"
+
+extraResources:
+  - from: "dist-python/audio-engine"
+    to: "audio-engine"
+  - from: "LICENSE"
+    to: "LICENSE"
+  - from: "THIRD_PARTY_LICENSES.md"
+    to: "THIRD_PARTY_LICENSES.md"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: "${productName}-Setup-${version}-${arch}.${ext}"
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  license: "LICENSE"
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: "AI Meeting Assistant Copilot"
+  include: "build/installer.nsh"
