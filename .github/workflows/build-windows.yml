@@ -1,0 +1,51 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies and PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r audio/requirements.txt
+          pip install pyinstaller
+
+      - name: Bundle Python audio-engine sidecar
+        run: |
+          pyinstaller build/audio-engine.spec --distpath dist-python --workpath build/pyi-work --noconfirm
+
+      - name: Install Node.js dependencies and electron-builder
+        run: |
+          npm install
+          npm install --no-save electron-builder
+
+      - name: Build Windows NSIS installer
+        run: |
+          npx electron-builder --win nsis --config electron-builder.yml
+
+      - name: Upload Windows Installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-meeting-assistant-copilot-windows-installer
+          path: dist-installer/*.exe
