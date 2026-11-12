@@ -42,7 +42,7 @@ jobs:
 
       - name: Build Windows NSIS installer
         run: |
-          npx electron-builder --win nsis --config electron-builder.yml
+          npx electron-builder --win nsis --config electron-builder.yml --publish never
 
       - name: Upload Windows Installer artifact
         uses: actions/upload-artifact@v4
