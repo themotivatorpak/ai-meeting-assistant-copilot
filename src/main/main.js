@@ -483,4 +483,453 @@ function wireBrain() {
     if (d.kind === 'answer' && !d.skipped) {
       // Store the question TEXT. The old `forTurn` index was captured when the
       // answer finished, so anything said in the meantime shifted it -- the
-      // saved notes showed answers attributed to the wrong turn
+      // saved notes showed answers attributed to the wrong turn, including to
+      // the user's own lines.
+      meeting.answers.push({
+        forText: lastTheySaid, text: d.text, at: Date.now(), usedIt: null,
+      });
+      persistMeeting();
+    }
+    if (d.kind === 'summary') {
+      try { meeting.summary = JSON.parse(d.text.replace(/^```(?:json)?|```$/g, '').trim()); }
+      catch { meeting.summary = { summary: d.text }; }
+      persistMeeting();
+      toDashboard('summary', meeting.summary);
+    }
+  });
+
+  brain.on('auth-error', (msg) => {
+    const help = 'Claude Code is signed in inside the Claude Desktop app, but that session lives in the app itself - a separate program cannot use it. Open a terminal, run claude, sign in there once, then restart Meeting Copilot.';
+    toOverlay('error', { where: 'brain', message: help, detail: msg });
+    toDashboard('error', { where: 'brain', message: help, detail: msg });
+  });
+
+  brain.on('error', (e) => toOverlay('answer:error', e));
+}
+
+/**
+ * Definitive check: does the overlay change what a screen capture looks like?
+ *
+ * The earlier version asked "is the overlay's rectangle black?", which was
+ * wrong. On this machine the overlay is composited into the capture as a
+ * TRANSLUCENT DARK TINT -- around rgb(90,90,90), with the content behind still
+ * faintly readable through it. Not black, so the old test said "safe" and the
+ * protection never fired while the other side was looking at a grey rectangle.
+ *
+ * This compares the same region with the overlay shown and hidden. If the two
+ * differ, the overlay affects the capture -- whatever colour it happens to be.
+ */
+async function measureCapture() {
+  if (!overlay || overlay.isDestroyed()) {
+    return { ok: false, detail: 'Overlay window not created yet.' };
+  }
+  const wasVisible = overlay.isVisible();
+  try {
+    const display = screen.getPrimaryDisplay();
+    const { width, height } = display.size;
+    const b = overlay.getBounds();
+
+    const grab = async () => {
+      const [src] = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width, height } });
+      if (!src) return null;
+      const img = src.thumbnail;
+      return { size: img.getSize(), buf: img.toBitmap() };
+    };
+
+    // The panel is deliberately hidden mid-measurement. If anything throws in
+    // between, it must still come back -- otherwise the check-up itself loses
+    // the user's panel, with no obvious way to get it back.
+    let withOverlay = null;
+    let without = null;
+    try {
+      if (!wasVisible) overlay.showInactive();
+      await new Promise((r) => setTimeout(r, 350));
+      withOverlay = await grab();
+
+      overlay.hide();
+      await new Promise((r) => setTimeout(r, 350));
+      without = await grab();
+    } finally {
+      if (wasVisible && overlay && !overlay.isDestroyed()) overlay.showInactive();
+    }
+    if (!withOverlay || !without) return { ok: false, detail: 'Could not capture the screen.' };
+
+    const { size, buf: a } = withOverlay;
+    const bb = without.buf;
+    const sx = size.width / width, sy = size.height / height;
+
+    let diff = 0, total = 0;
+    for (let y = Math.max(0, Math.round(b.y * sy)); y < Math.min(size.height, Math.round((b.y + b.height) * sy)); y++) {
+      for (let x = Math.max(0, Math.round(b.x * sx)); x < Math.min(size.width, Math.round((b.x + b.width) * sx)); x++) {
+        const i = (y * size.width + x) * 4;
+        if (i + 2 >= a.length || i + 2 >= bb.length) continue;
+        total++;
+        const d = Math.abs(a[i] - bb[i]) + Math.abs(a[i + 1] - bb[i + 1]) + Math.abs(a[i + 2] - bb[i + 2]);
+        if (d > 24) diff++;
+      }
+    }
+    if (!total) return { ok: false, detail: 'Overlay is off-screen.' };
+
+    const pct = diff / total;
+    if (pct > 0.15) {
+      return { ok: false, blackBox: true, changed: Math.round(pct * 100), detail:
+        `Sharing your WHOLE SCREEN would show a ${Math.round(pct * 100)}% visible rectangle here ` +
+        '(your text does not leak, but the panel does). It is hidden automatically while you share ' +
+        'the whole screen - share a window or a tab instead, or read the answers on your phone.' };
+    }
+    return { ok: true, changed: Math.round(pct * 100), detail:
+      'Screen capture is identical with the overlay shown or hidden - you are clear to share the whole screen.' };
+  } catch (e) {
+    if (wasVisible && overlay && !overlay.isDestroyed()) overlay.showInactive();
+    return { ok: false, detail: String(e.message || e) };
+  }
+}
+
+/**
+ * Hide the overlay while the ENTIRE SCREEN is being shared.
+ *
+ * Unconditional by design. Measuring first was clever and got it wrong once
+ * already; being wrong here means the client sees the panel. Sharing a window or
+ * a tab is untouched, and the toggle in Settings turns this off for a machine
+ * that genuinely hides it.
+ */
+function startShareWatch() {
+  if (stopShareWatch) stopShareWatch();
+  stopShareWatch = sharewatch.watch((now) => {
+    shareState = now;
+    toOverlay('share', now);
+    toDashboard('share', now);
+
+    if (!settings.overlay.autoHideOnScreenShare) return;
+
+    if (now.mode === 'screen') {
+      if (overlay && !overlay.isDestroyed() && overlay.isVisible()) {
+        overlay.hide();
+        hiddenByShare = true;
+        // No popup on purpose: a notification would be captured too.
+        toDashboard('share-hidden', {
+          reason: 'You are sharing your ENTIRE SCREEN, so the panel has been hidden - it would '
+                + 'otherwise show as a grey rectangle. Read the answers on your phone (Settings), '
+                + 'or share a window or a tab and the panel comes straight back.',
+        });
+      }
+    } else if (hiddenByShare) {
+      hiddenByShare = false;
+      if (overlay && !overlay.isDestroyed()) overlay.showInactive();
+      toDashboard('share-hidden', null);
+    }
+  }, 900);   // tighter poll: this must react before the client notices
+}
+
+// ---------------------------------------------------------------- hotkeys
+
+function registerHotkeys() {
+  globalShortcut.unregisterAll();
+  const h = settings.hotkeys;
+  const safe = (accel, fn) => {
+    if (!accel) return;
+    try { globalShortcut.register(accel, fn); } catch { /* conflicting binding */ }
+  };
+
+  safe(h.toggleOverlay, () => {
+    if (!overlay) return;
+    if (overlay.isVisible()) overlay.hide(); else overlay.showInactive();
+  });
+  safe(h.panic, () => { if (overlay) overlay.hide(); });
+  safe(h.clickThrough, () => setClickThrough(!settings.overlay.clickThrough));
+  safe(h.ask, () => { if (overlay) { overlay.show(); overlay.focus(); toOverlay('focus-ask'); } });
+  safe(h.repeat, () => {
+    if (brain && lastTheySaid) brain.answer(lastTheySaid, recentTurns());
+  });
+}
+
+// ---------------------------------------------------------------- ipc
+
+function registerIpc() {
+  ipcMain.handle('state', () => publicState());
+  ipcMain.handle('settings:get', () => store.getSettings());
+  ipcMain.handle('settings:save', async (_e, patch) => {
+    const before = JSON.stringify(settings.audio);
+    settings = store.saveSettings(patch);
+    registerHotkeys();
+    if (overlay) overlay.setOpacity(clampOpacity(settings.overlay.opacity));
+
+    // Speech settings only take effect inside the sidecar, so a change made
+    // mid-meeting has to restart it -- otherwise the user flips the model and
+    // nothing happens.
+    if (listening && bridge && JSON.stringify(settings.audio) !== before) {
+      toOverlay('status', { stage: 'rebuilding_audio', reason: 'settings changed' });
+      await bridge.restart(settings.audio);
+      if (meeting) setTimeout(() => bridge.setHotwords(collectTerms(meeting.brief)), 1500);
+    }
+
+    toOverlay('state', publicState());
+    toDashboard('state', publicState());
+    return settings;
+  });
+
+  ipcMain.handle('meeting:list', () => store.listMeetings());
+  ipcMain.handle('meeting:get', (_e, id) => store.getMeeting(id));
+  ipcMain.handle('meeting:create', () => store.createMeeting());
+  ipcMain.handle('meeting:save', (_e, m) => {
+    const saved = store.saveMeeting(m);
+    if (meeting && saved && saved.id === meeting.id) {
+      meeting = saved;
+      if (bridge) bridge.setHotwords(collectTerms(saved.brief));
+    }
+    return saved;
+  });
+  ipcMain.handle('meeting:delete', (_e, id) => store.deleteMeeting(id));
+
+  ipcMain.handle('listen:start', (_e, id) => startListening(id));
+  ipcMain.handle('listen:stop', () => stopListening());
+  ipcMain.handle('listen:pause', () => (bridge ? bridge.pause() : false));
+  ipcMain.handle('listen:resume', () => (bridge ? bridge.resume() : false));
+
+  ipcMain.handle('brain:ask', (_e, q) => (brain ? brain.ask(q, recentTurns()) : null));
+  ipcMain.handle('brain:suggest', () => (brain ? brain.suggest(recentTurns()) : null));
+  ipcMain.handle('brain:repeat', () => (brain && lastTheySaid ? brain.answer(lastTheySaid, recentTurns()) : null));
+  // Prep questions work with no meeting running.
+  ipcMain.handle('brain:clarify', async (_e, brief) => {
+    const s = store.getSettings();
+    return clarifyBrief(brief, s.brain);
+  });
+
+  // Summarise ANY meeting, live or reopened months later.
+  ipcMain.handle('brain:summarise', async (_e, id) => {
+    const m = id ? store.getMeeting(id) : meeting;
+    if (!m) return { ok: false, error: 'Meeting not found.' };
+    const s = store.getSettings();
+    const r = await summariseTranscript(m.transcript, m.brief, s.brain);
+    if (r.ok) {
+      m.summary = r.summary;
+      store.saveMeeting(m);
+      if (meeting && meeting.id === m.id) meeting = m;
+      toDashboard('summary', r.summary);
+    }
+    return r;
+  });
+
+  ipcMain.handle('overlay:size', (_e, size) => {
+    if (!overlay) return null;
+    const dim = SIZES[size] || SIZES.medium;
+    overlay.setSize(dim.width, dim.height, true);
+    settings = store.saveSettings({ overlay: { size, ...dim } });
+    return dim;
+  });
+  ipcMain.handle('overlay:opacity', (_e, v) => {
+    const o = clampOpacity(v);
+    if (overlay) overlay.setOpacity(o);
+    settings = store.saveSettings({ overlay: { opacity: o } });
+    return o;
+  });
+  // While click-through is on, the renderer tells us when the cursor enters or
+  // leaves a control so the toolbar stays usable.
+  ipcMain.on('overlay:hover', (_e, overControl) => {
+    if (!overlay || !clickThrough) return;
+    overlay.setIgnoreMouseEvents(!overControl, { forward: true });
+  });
+
+  ipcMain.handle('overlay:clickThrough', (_e, on) => { setClickThrough(on); return on; });
+  ipcMain.handle('overlay:hide', () => { if (overlay) overlay.hide(); });
+  ipcMain.handle('overlay:show', () => { if (overlay) overlay.showInactive(); });
+  ipcMain.handle('dashboard:open', () => { createDashboard(); return true; });
+  ipcMain.handle('note:add', (_e, note) => {
+    if (!meeting) return false;
+    meeting.notes.push({ text: note, at: Date.now(), kind: 'manual' });
+    persistMeeting();
+    toDashboard('note', note);
+    return true;
+  });
+
+  // Audio devices. Handled by a short-lived Python helper rather than the live
+  // sidecar, so you can pick and test your headset BEFORE starting a meeting.
+  ipcMain.handle('devices:list', () => runDevTool(['--list']));
+  ipcMain.handle('devices:testSpeaker', (_e, output) =>
+    runDevTool(['--test-speaker', ...(output ? ['--output', output] : [])], 20000));
+  ipcMain.handle('devices:testMic', (_e, opts) => runDevTool([
+    '--test-mic',
+    '--seconds', String((opts && opts.seconds) || 4),
+    ...((opts && opts.input) ? ['--input', opts.input] : []),
+    ...((opts && opts.output) ? ['--output', opts.output] : []),
+    ...((opts && opts.playback) ? ['--playback'] : []),
+  ], 30000));
+  ipcMain.handle('devices:select', async (_e, sel) => {
+    settings = store.saveSettings({ audio: {
+      input_device: (sel && sel.input) || null,
+      output_device: (sel && sel.output) || null,
+    } });
+    // Apply immediately if a meeting is already running.
+    if (listening && bridge) {
+      bridge.send({ c: 'select_devices', input: settings.audio.input_device, output: settings.audio.output_device });
+    }
+    return settings.audio;
+  });
+
+  ipcMain.handle('companion:info', async () => {
+    const url = phone.url;
+    let qr = null;
+    if (url) {
+      // A QR beats typing an IP address on a phone keyboard mid-setup.
+      try { qr = await require('qrcode').toDataURL(url, { margin: 1, width: 240 }); }
+      catch { /* the URL alone still works */ }
+    }
+    return {
+      enabled: settings.companion.enabled,
+      url, qr,
+      connected: phone.connected,
+      running: !!phone.port,
+    };
+  });
+  ipcMain.handle('companion:toggle', (_e, on) => {
+    settings = store.saveSettings({ companion: { enabled: !!on } });
+    if (!on) phone.stop();
+    else if (listening) phone.start(settings.companion.port);
+    return { enabled: settings.companion.enabled, url: phone.url };
+  });
+
+  ipcMain.handle('doctor', async () => runDoctor());
+  ipcMain.handle('open:folder', () => { shell.openPath(store.ROOT); return true; });
+
+  // "Bring panel back": the one-click cure for a panel dragged off-screen,
+  // hidden by a hotkey, or left invisible after an auto-hide.
+  ipcMain.handle('overlay:reset', () => {
+    if (!overlay || overlay.isDestroyed()) createOverlay();
+    const a = screen.getPrimaryDisplay().workArea;
+    const dim = SIZES[settings.overlay.size] || SIZES.medium;
+    const b = { x: a.x + a.width - dim.width - 24, y: a.y + 24, width: dim.width, height: dim.height };
+    overlay.setBounds(b);
+    overlay.setOpacity(clampOpacity(settings.overlay.opacity));
+    overlay.setIgnoreMouseEvents(false);
+    clickThrough = false;
+    hiddenByShare = false;
+    overlay.show();
+    overlay.setAlwaysOnTop(true, 'screen-saver');
+    settings = store.saveSettings({ overlay: { ...b, clickThrough: false } });
+    toOverlay('state', publicState());
+    return b;
+  });
+  ipcMain.handle('export:docx', async (_e, id) => {
+    const { exportMeeting } = require('./docx');
+    return exportMeeting(store.getMeeting(id));
+  });
+}
+
+/** Run audio/devtest.py and parse its single line of JSON. */
+function runDevTool(args, timeout = 15000) {
+  return new Promise((resolve) => {
+    const py = resolvePython();
+    if (!py) {
+      return resolve({ ok: false, detail: 'Python with the audio packages was not found. ' + SETUP_HINT });
+    }
+    const { spawn } = require('child_process');
+    const proc = spawn(py.exe, [...py.pre, '-u', path.join(__dirname, '..', '..', 'audio', 'devtest.py'), ...args], {
+      cwd: path.join(__dirname, '..', '..'), windowsHide: true,
+    });
+
+    let out = '';
+    let err = '';
+    const timer = setTimeout(() => { try { proc.kill(); } catch { /* ignore */ } }, timeout);
+
+    proc.stdout.on('data', (b) => { out += String(b); });
+    proc.stderr.on('data', (b) => { err += String(b); });
+    proc.on('error', (e) => { clearTimeout(timer); resolve({ ok: false, detail: String(e.message || e) }); });
+    proc.on('close', () => {
+      clearTimeout(timer);
+      // The helper prints exactly one JSON line; ignore any warning noise.
+      const line = out.trim().split(/\r?\n/).reverse().find((l) => l.trim().startsWith('{'));
+      if (!line) return resolve({ ok: false, detail: (err.trim().split(/\r?\n/).pop() || 'No response from the audio helper.') });
+      try { resolve(JSON.parse(line)); }
+      catch (e) { resolve({ ok: false, detail: 'Bad response from the audio helper: ' + e.message }); }
+    });
+  });
+}
+
+/**
+ * Capture the screen and inspect the overlay's rectangle. Tells the user what
+ * a viewer would ACTUALLY see on this specific machine, rather than what the
+ * API claims. Three outcomes: absent (ideal), blacked out, or leaking.
+ */
+/**
+ * Pre-flight check. Every failure here is one the user can act on, so the
+ * dashboard shows them plainly instead of failing mysteriously mid-meeting.
+ */
+async function runDoctor() {
+  const out = { python: null, capture: null, contentProtection: null, claude: null };
+
+  const py = resolvePython();
+  out.python = py
+    ? { ok: true, detail: `${py.exe} ${py.pre.join(' ')}`.trim() }
+    : { ok: false, detail: 'Missing. ' + SETUP_HINT };
+
+  out.contentProtection = captureMode
+    ? { ok: captureMode.ok, detail: captureMode.ok
+          ? (process.platform === 'darwin' ? 'Content protection on (NSWindowSharingNone).' : 'WDA_EXCLUDEFROMCAPTURE active - the overlay is removed from captures.')
+          : `${captureMode.mode}: ${captureMode.detail}` }
+    : { ok: false, detail: 'Overlay window not created yet.' };
+
+  // Actually measure it rather than trusting the flag: capture the screen and
+  // look at the pixels where the overlay is sitting.
+  out.capture = await measureCapture();
+
+  const provider = (store.getSettings().brain.provider || 'claude').toLowerCase();
+  if (provider === 'codex') {
+    // ChatGPT is checked for real here: it is a quick local command, no network.
+    const c = codexStatus(store.getSettings().brain.codexPath);
+    out.claude = !c.installed
+      ? { ok: false, detail: 'ChatGPT is the brain, but the Codex CLI is not installed. Run: npm install -g @openai/codex then codex login' }
+      : c.signedIn
+        ? { ok: true, detail: 'ChatGPT is signed in through the Codex CLI.' }
+        : { ok: false, detail: 'The Codex CLI is installed but not signed in. Open a terminal and run: codex login (choose "Sign in with ChatGPT").' };
+  } else if (provider === 'openai') {
+    out.claude = store.getSettings().brain.openaiKey
+      ? { ok: true, detail: 'OpenAI API key is set. It is checked when a meeting starts.' }
+      : { ok: false, detail: 'OpenAI API is the brain, but no API key is set. Add it under Brain & speech.' };
+  } else {
+    out.claude = brain?.authError
+      ? { ok: false, detail: 'Claude is not signed in for this app. Open a terminal, run claude, type /login inside it and finish in the browser, then restart Meeting Copilot.' }
+      : { ok: true, detail: 'Checked when a meeting starts.' };
+  }
+
+  return out;
+}
+
+// ---------------------------------------------------------------- lifecycle
+
+// One instance only: two copies would fight over the audio devices.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    createDashboard();
+    if (overlay && !overlay.isDestroyed()) overlay.showInactive();
+  });
+
+  app.whenReady().then(() => {
+    try {
+      registerIpc();
+      createOverlay();
+      createDashboard();
+      registerHotkeys();
+      startShareWatch();
+    } catch (e) {
+      logFatal('startup', e);
+      // Never leave the user with a running process and no windows. If the
+      // overlay failed, at least get the dashboard up so they can see the error.
+      try { if (!dashboard) createDashboard(); } catch { /* ignore */ }
+    }
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) { createOverlay(); createDashboard(); }
+    });
+  });
+
+  app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+
+  app.on('will-quit', async () => {
+    if (stopShareWatch) stopShareWatch();
+    globalShortcut.unregisterAll();
+    if (bridge) await bridge.stop();
+    if (brain) await brain.stop();
+  });
+}
