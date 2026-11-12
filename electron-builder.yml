@@ -1,6 +1,6 @@
-appId: com.tanzeeldevai.aimeetingassistantcopilot
+appId: com.notanotherai.aimeetingassistantcopilot
 productName: AI Meeting Assistant Copilot
-copyright: "Copyright (c) 2026 Tanzeel Ur Rehman (@tanzeeldevAi) - MIT License"
+copyright: "Packaged by Not Another AI | Upstream MIT License Copyright (c) 2026 Tanzeel Ur Rehman (@tanzeeldevAi)"
 
 directories:
   output: dist-installer
@@ -25,19 +25,25 @@ extraResources:
     to: "LICENSE"
   - from: "THIRD_PARTY_LICENSES.md"
     to: "THIRD_PARTY_LICENSES.md"
+  - from: "build/INSTALLER_LICENSE.txt"
+    to: "INSTALLER_LICENSE.txt"
 
 win:
   target:
     - target: nsis
       arch:
         - x64
+  icon: "build/icon.ico"
   artifactName: "${productName}-Setup-${version}-${arch}.${ext}"
 
 nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
-  license: "LICENSE"
+  license: "build/INSTALLER_LICENSE.txt"
+  installerIcon: "build/installer.ico"
+  uninstallerIcon: "build/installer.ico"
+  installerHeaderIcon: "build/installer.ico"
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: "AI Meeting Assistant Copilot"
