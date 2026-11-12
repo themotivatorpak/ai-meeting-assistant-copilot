@@ -11,7 +11,16 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.join(__dirname, '..', '..', 'data');
+let electronApp = null;
+try {
+  electronApp = require('electron').app;
+} catch {
+  electronApp = null;
+}
+
+const ROOT = (electronApp && electronApp.isPackaged)
+  ? path.join(electronApp.getPath('userData'), 'data')
+  : path.join(__dirname, '..', '..', 'data');
 const MEETINGS = path.join(ROOT, 'meetings');
 const SETTINGS = path.join(ROOT, 'settings.json');
 
