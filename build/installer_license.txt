@@ -1,0 +1,38 @@
+AI Meeting Assistant Copilot - Windows Installer
+Brought to you by Not Another AI (https://github.com/themotivatorpak/ai-meeting-assistant-copilot)
+
+This is an independent, one-click Windows distribution packaged and brought to you by Not Another AI using open-source software, built so anyone can install and run the app easily without manual developer setup.
+
+AI Account & Plan Requirements:
+- To use your ChatGPT subscription via Codex CLI, you need a ChatGPT account (ChatGPT Plus or Pro is recommended for regular meeting usage; Free/Go plans have tighter limits) and Node.js to install Codex CLI.
+- Alternatively, you can paste your own OpenAI or Anthropic API key directly in the app's Settings tab without installing Codex CLI.
+- Google Chrome or Brave is recommended for browser session integration.
+
+Original Project & Upstream Author Credit:
+Originally created by Tanzeel Ur Rehman (@tanzeeldevAi)
+Upstream Repository: https://github.com/tanzeeldevAi/ai-meeting-assistant-copilot
+
+Bundled open-source runtimes and libraries (Electron, Node.js, Python, faster-whisper, PyAudioWPatch, Playwright, and others) remain the property of their respective owners and are credited in THIRD_PARTY_LICENSES.md in the installation folder.
+
+========================================================================
+MIT License
+
+Copyright (c) 2026 Tanzeel Ur Rehman (@tanzeeldevAi)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
