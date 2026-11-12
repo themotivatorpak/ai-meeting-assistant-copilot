@@ -823,9 +823,14 @@ function runDevTool(args, timeout = 15000) {
       return resolve({ ok: false, detail: 'Python with the audio packages was not found. ' + SETUP_HINT });
     }
     const { spawn } = require('child_process');
-    const proc = spawn(py.exe, [...py.pre, '-u', path.join(__dirname, '..', '..', 'audio', 'devtest.py'), ...args], {
-      cwd: path.join(__dirname, '..', '..'), windowsHide: true,
-    });
+    const devExe = py.packaged
+      ? path.join(path.dirname(py.exe), process.platform === 'win32' ? 'devtest.exe' : 'devtest')
+      : py.exe;
+    const devArgs = py.packaged
+      ? args
+      : [...py.pre, '-u', path.join(__dirname, '..', '..', 'audio', 'devtest.py'), ...args];
+    const devCwd = py.packaged ? path.dirname(py.exe) : path.join(__dirname, '..', '..');
+    const proc = spawn(devExe, devArgs, { cwd: devCwd, windowsHide: true });
 
     let out = '';
     let err = '';
